@@ -1,4 +1,3 @@
-
 import { CONFIG } from "./config.js";
 
 
@@ -16,32 +15,30 @@ export class TrafficLightController {
         this.lights = {};
         this.mode = CONFIG.MODES.FIXED;
         this.settings = { ...CONFIG.DEFAULT_SETTINGS };
-       
-        // Fixed mode state - explicit phases for described cycle
-        // 0: NS green, 1: NS yellow, 2: NS red (wait), 3: WE green, 4: WE yellow, 5: WE red (wait)
+
         this.fixedState = {
             currentPhase: 0,
             phaseTimer: 0,
             isActive: false
         };
-       
-        // Adaptive mode state - completely independent
+
         this.adaptiveState = {
-            currentPair: null, // 'WE' or 'NS' or null
-            currentPhase: 'red', // 'green', 'yellow', 'red'
+            currentPair: null,
+            currentPhase: 'red',
             phaseTimer: 0,
             isActive: false,
-            priorityScores: { WE: 0, NS: 0 },
+            greenPairScores: { north: 0, south: 0, east: 0, west: 0 },
+            redPairScores: { north: 0, south: 0, east: 0, west: 0 },
+            redPairWaitTimes: { north: 0, south: 0, east: 0, west: 0 },
             lastSwitchTime: 0,
             firstCarTriggered: false
         };
-       
+
         this.initializeLights();
 
     }
 
     initializeLights() {
-        // Initialize all lights to red
         Object.values(CONFIG.DIRECTIONS).forEach(direction => {
             this.lights[direction] = {
                 state: CONFIG.LIGHT_STATES.RED,
@@ -51,13 +48,10 @@ export class TrafficLightController {
     }
 
 
-    // Remove this duplicate block entirely, as it is a repeated method body and not valid inside the class.
-
-
     initializeFixedMode() {
         console.log('Initializing Fixed Mode');
         this.fixedState = {
-            currentPhase: 0, // Start with North-South green
+            currentPhase: 0,
             phaseTimer: 0,
             isActive: true
         };
@@ -68,15 +62,16 @@ export class TrafficLightController {
     initializeAdaptiveMode() {
         console.log('Initializing Adaptive Mode');
         this.adaptiveState = {
-            currentPair: null, // Wait for first car
+            currentPair: null,
             currentPhase: 'red',
             phaseTimer: 0,
             isActive: true,
-            priorityScores: { WE: 0, NS: 0 },
+            greenPairScores: { north: 0, south: 0, east: 0, west: 0 },
+            redPairScores: { north: 0, south: 0, east: 0, west: 0 },
+            redPairWaitTimes: { north: 0, south: 0, east: 0, west: 0 },
             lastSwitchTime: 0,
             firstCarTriggered: false
         };
-        // Start with all lights red in adaptive mode
         this.setAllLightsRed();
     }
 
@@ -100,39 +95,38 @@ export class TrafficLightController {
     }
 
 
-    // FIXED MODE LOGIC - Simple timer-based cycling
     updateFixedMode(deltaTime) {
         this.fixedState.phaseTimer += deltaTime;
 
 
         switch (this.fixedState.currentPhase) {
-            case 0: // NS green
+            case 0:
                 if (this.fixedState.phaseTimer >= this.settings.GREEN_DURATION) {
                     this.advanceFixedPhase();
                 }
                 break;
-            case 1: // NS yellow
+            case 1:
                 if (this.fixedState.phaseTimer >= this.settings.YELLOW_DURATION) {
                     this.advanceFixedPhase();
                 }
                 break;
-            case 2: // NS red (wait)
-                if (this.fixedState.phaseTimer >= 3000) { // 3 seconds wait
+            case 2:
+                if (this.fixedState.phaseTimer >= 3000) {
                     this.advanceFixedPhase();
                 }
                 break;
-            case 3: // WE green
+            case 3:
                 if (this.fixedState.phaseTimer >= this.settings.GREEN_DURATION) {
                     this.advanceFixedPhase();
                 }
                 break;
-            case 4: // WE yellow
+            case 4:
                 if (this.fixedState.phaseTimer >= this.settings.YELLOW_DURATION) {
                     this.advanceFixedPhase();
                 }
                 break;
-            case 5: // WE red (wait)
-                if (this.fixedState.phaseTimer >= 3000) { // 3 seconds wait
+            case 5:
+                if (this.fixedState.phaseTimer >= 3000) {
                     this.advanceFixedPhase();
                 }
                 break;
@@ -149,101 +143,75 @@ export class TrafficLightController {
 
 
     setFixedLightState() {
-        // Reset all lights to red first
         this.setAllLightsRed();
 
 
         switch (this.fixedState.currentPhase) {
-            case 0: // NS green
+            case 0:
                 this.lights[CONFIG.DIRECTIONS.NORTH].state = CONFIG.LIGHT_STATES.GREEN;
                 this.lights[CONFIG.DIRECTIONS.SOUTH].state = CONFIG.LIGHT_STATES.GREEN;
                 break;
-            case 1: // NS yellow
+            case 1:
                 this.lights[CONFIG.DIRECTIONS.NORTH].state = CONFIG.LIGHT_STATES.YELLOW;
                 this.lights[CONFIG.DIRECTIONS.SOUTH].state = CONFIG.LIGHT_STATES.YELLOW;
                 break;
-            case 2: // NS red (wait)
-                // All lights remain red
+            case 2:
                 break;
-            case 3: // WE green
+            case 3:
                 this.lights[CONFIG.DIRECTIONS.WEST].state = CONFIG.LIGHT_STATES.GREEN;
                 this.lights[CONFIG.DIRECTIONS.EAST].state = CONFIG.LIGHT_STATES.GREEN;
                 break;
-            case 4: // WE yellow
+            case 4:
                 this.lights[CONFIG.DIRECTIONS.WEST].state = CONFIG.LIGHT_STATES.YELLOW;
                 this.lights[CONFIG.DIRECTIONS.EAST].state = CONFIG.LIGHT_STATES.YELLOW;
                 break;
-            case 5: // WE red (wait)
-                // All lights remain red
+            case 5:
                 break;
         }
     }
 
 
-    // ADAPTIVE MODE LOGIC - Exactly as specified by user
     updateAdaptiveMode(deltaTime) {
         this.adaptiveState.phaseTimer += deltaTime;
 
-        // INITIAL STATE: Wait for first car from ANY direction to trigger the system
         if (this.adaptiveState.currentPair === null) {
-            // Check current priority scores (these should be updated by updateAdaptiveLogic)
-            const weScore = this.adaptiveState.priorityScores.WE || 0;
-            const nsScore = this.adaptiveState.priorityScores.NS || 0;
-            
-            console.log(`🔍 STARTUP CHECK: WE=${weScore}, NS=${nsScore}`);
-            
-            let firstDetectedPair = null;
-            if (weScore > 0) {
-                firstDetectedPair = 'WE';
-                console.log(`🚗 FIRST CAR: WEST or EAST detected - WE pair will get green!`);
-            } else if (nsScore > 0) {
-                firstDetectedPair = 'NS';
-                console.log(`🚗 FIRST CAR: NORTH or SOUTH detected - NS pair will get green!`);
-            }
-            
+            const firstDetectedPair = this.getFirstDetectedPair();
+
             if (firstDetectedPair) {
-                console.log(`🚦 SYSTEM ACTIVATION: ${firstDetectedPair} pair gets initial green light!`);
+                console.log(`🚦 FIRST CAR: ${firstDetectedPair} pair gets green light!`);
                 this.switchToAdaptivePair(firstDetectedPair);
-            } else {
-                console.log('🚦 WAITING: No cars detected yet, all lights remain red');
             }
             return;
         }
 
-        // CONTINUOUS SCORE CALCULATION EVERY FEW SECONDS
-        const scoreCalculationInterval = 3000; // Calculate scores every 3 seconds
-        
+        const scoreCalculationInterval = 3000;
+
         switch (this.adaptiveState.currentPhase) {
             case 'green':
-                // For GREEN pair: Count cars entering detector region continuously
-                // For RED pair: Count cars + start wait timer when first car reaches stop line
-                
                 if (this.adaptiveState.phaseTimer >= scoreCalculationInterval) {
-                    console.log('� CALCULATING SCORES after 3 seconds...');
-                    
                     const currentPairScore = this.calculateCurrentGreenPairScore();
                     const waitingPairScore = this.calculateWaitingRedPairScore();
-                    
+
                     console.log(`📊 GREEN ${this.adaptiveState.currentPair}: ${currentPairScore.toFixed(1)} vs RED ${this.getOtherPair()}: ${waitingPairScore.toFixed(1)}`);
-                    
+
                     if (waitingPairScore > currentPairScore) {
                         console.log('🚥 RED pair wins! Starting yellow transition...');
                         this.startAdaptiveYellow();
                     } else {
                         console.log('✅ GREEN pair wins! Staying green, recalculating in 3 seconds...');
-                        this.adaptiveState.phaseTimer = 0; // Reset timer for next calculation
+                        this.adaptiveState.phaseTimer = 0;
                     }
                 }
                 break;
-                
+
             case 'yellow':
                 if (this.adaptiveState.phaseTimer >= this.settings.YELLOW_DURATION) {
                     this.startAdaptiveRed();
                 }
                 break;
-                
+
             case 'red':
-                if (this.adaptiveState.phaseTimer >= 1500) { // 1.5 second transition
+                if (this.adaptiveState.phaseTimer >= 1500) {
                     const nextPair = this.getOtherPair();
                     console.log(`🔄 SWITCHING: ${this.adaptiveState.currentPair} → ${nextPair}`);
                     this.switchToAdaptivePair(nextPair);
@@ -304,34 +272,14 @@ export class TrafficLightController {
     }
 
 
-    shouldSwitchInAdaptive() {
-        const currentPair = this.adaptiveState.currentPair;
-        const otherPair = currentPair === 'WE' ? 'NS' : 'WE';
-        
-        const currentScore = this.adaptiveState.priorityScores[currentPair] || 0;
-        const otherScore = this.adaptiveState.priorityScores[otherPair] || 0;
-        
-        // AGGRESSIVE PRIORITY SWITCHING: Switch as soon as other direction has more cars
-        // No minimum time delays - pure priority-based decisions!
-        const shouldSwitch = otherScore > currentScore && otherScore > 2; // Switch if other side has more cars
-        
-        if (shouldSwitch) {
-            console.log(`🚦 PRIORITY SWITCH: ${currentPair}(${currentScore}) → ${otherPair}(${otherScore})`);
-        } else {
-            console.log(`🚦 STAYING: ${currentPair}(${currentScore}) vs ${otherPair}(${otherScore})`);
-        }
-        
-        return shouldSwitch;
-    }
-
-
     getFirstDetectedPair() {
-        // Check if any cars have entered detector regions (regardless of distance)
-        const weScore = this.adaptiveState.priorityScores.WE || 0;
-        const nsScore = this.adaptiveState.priorityScores.NS || 0;
-        
-        if (weScore > 0) return 'WE';
-        if (nsScore > 0) return 'NS';
+        const northCount = this.adaptiveState.greenPairScores.north || 0;
+        const southCount = this.adaptiveState.greenPairScores.south || 0;
+        const eastCount = this.adaptiveState.greenPairScores.east || 0;
+        const westCount = this.adaptiveState.greenPairScores.west || 0;
+
+        if (northCount > 0 || southCount > 0) return 'NS';
+        if (eastCount > 0 || westCount > 0) return 'WE';
         return null;
     }
 
@@ -340,27 +288,46 @@ export class TrafficLightController {
     }
 
     calculateCurrentGreenPairScore() {
-        // For GREEN lights: Count cars entering detector region continuously
         const currentPair = this.adaptiveState.currentPair;
-        return this.adaptiveState.priorityScores[currentPair] || 0;
+        if (currentPair === 'NS') {
+            const northScore = this.adaptiveState.greenPairScores.north || 0;
+            const southScore = this.adaptiveState.greenPairScores.south || 0;
+            return northScore + southScore;
+        } else {
+            const westScore = this.adaptiveState.greenPairScores.west || 0;
+            const eastScore = this.adaptiveState.greenPairScores.east || 0;
+            return westScore + eastScore;
+        }
     }
 
     calculateWaitingRedPairScore() {
-        // For RED lights: Count cars + wait time since first car reached stop line
         const waitingPair = this.getOtherPair();
-        const pairScore = this.adaptiveState.priorityScores[waitingPair] || 0;
-        
-        // Enhanced scoring for waiting cars - wait time is heavily weighted
-        return pairScore;
+        if (waitingPair === 'NS') {
+            const northScore = this.adaptiveState.redPairScores.north || 0;
+            const southScore = this.adaptiveState.redPairScores.south || 0;
+            const northWait = this.adaptiveState.redPairWaitTimes.north || 0;
+            const southWait = this.adaptiveState.redPairWaitTimes.south || 0;
+
+            const northFinal = northScore * (1 + northWait / 10000);
+            const southFinal = southScore * (1 + southWait / 10000);
+            return northFinal + southFinal;
+        } else {
+            const westScore = this.adaptiveState.redPairScores.west || 0;
+            const eastScore = this.adaptiveState.redPairScores.east || 0;
+            const westWait = this.adaptiveState.redPairWaitTimes.west || 0;
+            const eastWait = this.adaptiveState.redPairWaitTimes.east || 0;
+
+            const westFinal = westScore * (1 + westWait / 10000);
+            const eastFinal = eastScore * (1 + eastWait / 10000);
+            return westFinal + eastFinal;
+        }
     }
 
 
     updateAdaptiveLogic(sensorData, deltaTime) {
         if (this.mode !== CONFIG.MODES.ADAPTIVE || !this.adaptiveState.isActive) return;
 
-        // Safety check: Ensure sensorData exists
         if (!sensorData) {
-            console.log('⚠️  updateAdaptiveLogic: sensorData is null, using empty data');
             sensorData = {
                 north: { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 },
                 south: { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 },
@@ -369,59 +336,33 @@ export class TrafficLightController {
             };
         }
 
-        // Check if we need to reset car counts on phase change
-        const currentPhase = this.adaptiveState.currentPhase;
-        if (this.lastPhase && this.lastPhase !== currentPhase) {
-            // Phase changed, reset will be handled by the sensor system
-            console.log(`Adaptive Mode: Phase changed from ${this.lastPhase} to ${currentPhase}, car counts will reset`);
-        }
-        this.lastPhase = currentPhase;
+        const northData = sensorData[CONFIG.DIRECTIONS.NORTH] || { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 };
+        const southData = sensorData[CONFIG.DIRECTIONS.SOUTH] || { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 };
+        const eastData = sensorData[CONFIG.DIRECTIONS.EAST] || { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 };
+        const westData = sensorData[CONFIG.DIRECTIONS.WEST] || { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 };
 
-        // Calculate priority scores for each pair
-        const weScore = this.calculatePairScore('WE', sensorData);
-        const nsScore = this.calculatePairScore('NS', sensorData);
-       
-        this.adaptiveState.priorityScores = { WE: weScore, NS: nsScore };
-    }
+        if (this.adaptiveState.currentPair === 'NS') {
+            this.adaptiveState.greenPairScores.north = northData.totalCarsDetected;
+            this.adaptiveState.greenPairScores.south = southData.totalCarsDetected;
 
+            this.adaptiveState.redPairScores.east = eastData.carsWaiting;
+            this.adaptiveState.redPairScores.west = westData.carsWaiting;
+            this.adaptiveState.redPairWaitTimes.east = eastData.waitTime;
+            this.adaptiveState.redPairWaitTimes.west = westData.waitTime;
+        } else if (this.adaptiveState.currentPair === 'WE') {
+            this.adaptiveState.greenPairScores.east = eastData.totalCarsDetected;
+            this.adaptiveState.greenPairScores.west = westData.totalCarsDetected;
 
-    calculatePairScore(pair, sensorData) {
-        let totalScore = 0;
-        
-        // Safety check: Ensure sensorData exists
-        if (!sensorData || typeof sensorData !== 'object') {
-            console.log('⚠️  sensorData is null/undefined, returning 0 score');
-            return 0;
+            this.adaptiveState.redPairScores.north = northData.carsWaiting;
+            this.adaptiveState.redPairScores.south = southData.carsWaiting;
+            this.adaptiveState.redPairWaitTimes.north = northData.waitTime;
+            this.adaptiveState.redPairWaitTimes.south = southData.waitTime;
+        } else {
+            this.adaptiveState.greenPairScores.north = northData.totalCarsDetected;
+            this.adaptiveState.greenPairScores.south = southData.totalCarsDetected;
+            this.adaptiveState.greenPairScores.east = eastData.totalCarsDetected;
+            this.adaptiveState.greenPairScores.west = westData.totalCarsDetected;
         }
-       
-        if (pair === 'WE') {
-            const westKey = CONFIG.DIRECTIONS.WEST;
-            const eastKey = CONFIG.DIRECTIONS.EAST;
-            
-            const westData = sensorData[westKey] || { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 };
-            const eastData = sensorData[eastKey] || { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 };
-           
-            // Score = (cars waiting * wait time in seconds) + total cars detected [FORMULA FROM SPEC]
-            const westScore = (westData.carsWaiting * (westData.waitTime / 1000)) + westData.totalCarsDetected;
-            const eastScore = (eastData.carsWaiting * (eastData.waitTime / 1000)) + eastData.totalCarsDetected;
-            totalScore = westScore + eastScore;
-            
-            console.log(`📊 WE Score: West(${westData.carsWaiting}cars, ${(westData.waitTime/1000).toFixed(1)}s, ${westData.totalCarsDetected}total) + East(${eastData.carsWaiting}cars, ${(eastData.waitTime/1000).toFixed(1)}s, ${eastData.totalCarsDetected}total) = ${totalScore.toFixed(1)}`);
-        } else if (pair === 'NS') {
-            const northKey = CONFIG.DIRECTIONS.NORTH;
-            const southKey = CONFIG.DIRECTIONS.SOUTH;
-            
-            const northData = sensorData[northKey] || { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 };
-            const southData = sensorData[southKey] || { carsWaiting: 0, waitTime: 0, totalCarsDetected: 0 };
-           
-            const northScore = (northData.carsWaiting * (northData.waitTime / 1000)) + northData.totalCarsDetected;
-            const southScore = (southData.carsWaiting * (southData.waitTime / 1000)) + southData.totalCarsDetected;
-            totalScore = northScore + southScore;
-            
-            console.log(`📊 NS Score: North(${northData.carsWaiting}cars, ${(northData.waitTime/1000).toFixed(1)}s, ${northData.totalCarsDetected}total) + South(${southData.carsWaiting}cars, ${(southData.waitTime/1000).toFixed(1)}s, ${southData.totalCarsDetected}total) = ${totalScore.toFixed(1)}`);
-        }
-       
-        return totalScore;
     }
 
 
@@ -446,29 +387,25 @@ export class TrafficLightController {
         if (!position) return;
 
 
-        const lightSize = CONFIG.LIGHT_SIZE || 4;  // Use config value, fallback to 4
-        const spacing = lightSize + 1;  // Very tight spacing
+        const lightSize = CONFIG.LIGHT_SIZE || 4;
+        const spacing = lightSize + 1;
 
 
-        // Draw light housing - scaled to light size
         ctx.fillStyle = '#333';
         ctx.fillRect(position.x - lightSize - 1, position.y - spacing * 1.5 - 1, (lightSize + 1) * 2, spacing * 3 + 2);
 
 
-        // Draw lights
         const lights = ['red', 'yellow', 'green'];
         lights.forEach((color, index) => {
             const lightY = position.y - spacing + (index * spacing);
 
 
-            // Light background
             ctx.fillStyle = '#222';
             ctx.beginPath();
             ctx.arc(position.x, lightY, lightSize, 0, Math.PI * 2);
             ctx.fill();
 
 
-            // Active light
             if (state === color) {
                 ctx.fillStyle = color;
                 ctx.beginPath();
@@ -479,7 +416,6 @@ export class TrafficLightController {
     }
 
 
-    // Public methods for UI and game engine
     getLightStates() {
         const states = {};
         Object.entries(this.lights).forEach(([direction, light]) => {
@@ -516,7 +452,6 @@ export class TrafficLightController {
     }
 
 
-    // Debug methods
     getDebugInfo() {
         if (this.mode === CONFIG.MODES.FIXED) {
             return {
@@ -531,7 +466,9 @@ export class TrafficLightController {
                 pair: this.adaptiveState.currentPair,
                 phase: this.adaptiveState.currentPhase,
                 timer: (this.adaptiveState.phaseTimer / 1000).toFixed(1) + 's',
-                scores: this.adaptiveState.priorityScores,
+                greenScores: this.adaptiveState.greenPairScores,
+                redScores: this.adaptiveState.redPairScores,
+                waitTimes: this.adaptiveState.redPairWaitTimes,
                 active: this.adaptiveState.isActive
             };
         }

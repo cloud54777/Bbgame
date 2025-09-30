@@ -3,8 +3,8 @@ import { TrafficLightController } from './trafficLights.js';
 import { CarManager } from './cars.js';
 import { SensorSystem } from './sensors.js';
 import { Statistics } from './statistics.js';
+import { WaitTimerDisplay } from './waitTimerDisplay.js';
 import { CONFIG } from './config.js';
-// ...existing code...
 
 export class GameEngine {
     constructor(canvas, ctx) {
@@ -32,9 +32,10 @@ export class GameEngine {
             carManager: new CarManager(this.intersection),
             sensorSystem: new SensorSystem(this.intersection),
             statistics: new Statistics(),
-            settings: { 
+            waitTimerDisplay: new WaitTimerDisplay(this.intersection),
+            settings: {
                 ...CONFIG.DEFAULT_SETTINGS,
-                YELLOW_DURATION: 3000 // Independent yellow duration for adaptive mode
+                YELLOW_DURATION: 3000
             }
         };
     }
@@ -86,6 +87,7 @@ export class GameEngine {
                 this.prevLightStates
             );
             currentMode.trafficLights.updateAdaptiveLogic(sensorData, deltaTime);
+            currentMode.waitTimerDisplay.update(sensorData, currentMode.trafficLights.getLightStates());
         } else {
             sensorData = currentMode.sensorSystem.update(currentMode.carManager.getCars());
         }
@@ -110,12 +112,17 @@ export class GameEngine {
         if (this.mode === CONFIG.MODES.ADAPTIVE) {
             currentMode.sensorSystem.render(this.ctx);
         }
-        
+
         // Render current mode's cars
         currentMode.carManager.render(this.ctx);
-        
+
         // Render current mode's traffic lights
         currentMode.trafficLights.render(this.ctx, this.intersection);
+
+        // Render wait timers (only in adaptive mode)
+        if (this.mode === CONFIG.MODES.ADAPTIVE) {
+            currentMode.waitTimerDisplay.render(this.ctx);
+        }
     }
 
     reset() {
@@ -129,7 +136,8 @@ export class GameEngine {
         this.adaptiveMode.trafficLights.reset();
         this.adaptiveMode.sensorSystem.reset();
         this.adaptiveMode.statistics.reset();
-        
+        this.adaptiveMode.waitTimerDisplay.reset();
+
         console.log('Game reset');
     }
 

@@ -79,9 +79,8 @@ export class GameEngine {
         currentMode.carManager.update(deltaTime, currentMode.trafficLights.getLightStates());
 
         // Update sensors and adaptive logic (only for adaptive mode)
-        let sensorData;
         if (this.mode === CONFIG.MODES.ADAPTIVE) {
-            sensorData = currentMode.sensorSystem.update(
+            const sensorData = currentMode.sensorSystem.update(
                 currentMode.carManager.getCars(),
                 currentMode.trafficLights.getLightStates(),
                 this.prevLightStates
@@ -89,7 +88,7 @@ export class GameEngine {
             currentMode.trafficLights.updateAdaptiveLogic(sensorData, deltaTime);
             currentMode.waitTimerDisplay.update(sensorData, currentMode.trafficLights.getLightStates());
         } else {
-            sensorData = currentMode.sensorSystem.update(currentMode.carManager.getCars());
+            currentMode.sensorSystem.update(currentMode.carManager.getCars());
         }
 
         // Update previous light states for next frame

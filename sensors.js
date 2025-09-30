@@ -111,17 +111,21 @@ export class SensorSystem {
             if (this.sensorData[direction].firstCarWaitStart) {
                 const waitTime = Date.now() - this.sensorData[direction].firstCarWaitStart;
                 this.sensorData[direction].waitTime = waitTime;
-                
+
                 // Display wait timer every second for red lights
                 if (lightStates && lightStates[direction] === CONFIG.LIGHT_STATES.RED && waitTime > 0) {
                     const seconds = Math.floor(waitTime/1000);
                     // Show every second (when milliseconds are close to 0)
-                    if (waitTime % 1000 < 100) { // Show every 1 second
+                    if (waitTime % 1000 < 100) {
                         console.log(`⏰ ${direction.toUpperCase()} WAIT TIMER: ${seconds}s (${this.sensorData[direction].carsWaiting} cars waiting)`);
                     }
                 }
+            } else if (lightStates && lightStates[direction] !== CONFIG.LIGHT_STATES.RED) {
+                this.sensorData[direction].firstCarWaitStart = null;
             }
         });
+
+        return this.sensorData;
     }
 
     isCarAtStopLine(car, direction) {
